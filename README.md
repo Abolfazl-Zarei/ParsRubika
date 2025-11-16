@@ -15,7 +15,7 @@
 
 <div align="center">
 
-<img src="https://img.icons8.com/color/120/000000/rubika.png" alt="Rubika Icon"/>
+<img src="https://sae22.ir/wp-content/uploads/2022/12/00.webp" alt="Rubika Icon" width="220px"/>
 <img src="https://img.icons8.com/color/120/000000/golang.png" alt="Golang Gopher"/>
 <img src="https://img.icons8.com/color/120/000000/robot.png" alt="Bot Icon"/>
 
