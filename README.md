@@ -329,11 +329,3 @@ GitHub: [https://github.com/Abolfazl-Zarei](https://github.com/Abolfazl-Zarei)
 
 # ❤️ پایان
 
-اگر می‌خواهی:
-
-✨ نسخه انگلیسی
-✨ نسخه کوتاه Dev-Friendly
-✨ نسخه با رنگ‌بندی گرافیکی
-✨ اضافه کردن بنر اختصاصی
-
-فقط بگو تا بسازم.
