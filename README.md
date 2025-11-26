@@ -1,4 +1,6 @@
-# 🤖 ParsRubika - کامل‌ترین کتابخانه Golang برای روبیکا
+
+
+# 🤖 ParsRubika - کتابخانه کامل Go برای ربات‌های روبیکا
 
 <div align="center">
 
@@ -61,6 +63,9 @@
 | **🛡 خطایابی هوشمند** | مدیریت خودکار خطاها |
 | **⚡ Performance بالا** | بهینه‌شده برای سرعت |
 | **📚 مستندات کامل** | آموزش‌های قدم به قدم |
+| **🔄 Hot-Reload** | بارگذاری مجدد کد بدون توقف |
+| **🛡️ Anti-Spam** | جلوگیری از اسپم کاربران |
+| **🌐 Network Stability** | مدیریت پایداری شبکه |
 
 ### 🏗 معماری کتابخانه
 
@@ -73,6 +78,10 @@
 ├── 🔄 polling.go         # 📡 سیستم پولینگ
 ├── 🌐 webhook.go         # 🌍 سیستم وب‌هوک
 ├── 💾 state.go           # 💡 مدیریت وضعیت کاربران
+├── 🛡️ antispam.go        # 🔒 سیستم ضد اسپم
+├── 🔄 reload.go          # 🔄 مدیریت Hot-Reload
+├── 🌐 network.go         # 🌐 مدیریت پایداری شبکه
+├── 📝 formatting.go      # 📝 فرمت‌بندی پیام‌ها و کیبوردها
 └── 📋 go.mod            # 📦 وابستگی‌های پروژه
 ```
 
@@ -157,6 +166,8 @@ const (
     RemovedMessage UpdateTypeEnum = "RemovedMessage"  // 🗑️ حذف پیام
     StartedBot     UpdateTypeEnum = "StartedBot"      // 🚀 شروع بات
     StoppedBot     UpdateTypeEnum = "StoppedBot"      // 🛑 توقف بات
+    CallbackQuery  UpdateTypeEnum = "CallbackQuery"   // 🔘 کوئری دکمه
+    InlineQuery    UpdateTypeEnum = "InlineQuery"     // 🔍 کوئری اینلاین
 )
 ```
 
@@ -165,17 +176,57 @@ const (
 ```go
 // 📝 ساختار کامل یک پیام
 type Message struct {
-    MessageID        int64             `json:"message_id"`         // 🔢 شناسه پیام
+    MessageID        string            `json:"message_id"`         // 🔢 شناسه پیام
     Text             string            `json:"text"`               // 📄 متن پیام
     Time             string            `json:"time"`               // ⏰ زمان ارسال
+    IsEdited         bool              `json:"is_edited"`          // ✏️ آیا ویرایش شده
     SenderType       MessageSenderEnum `json:"sender_type"`        // 👤 نوع فرستنده
     SenderID         string            `json:"sender_id"`          // 🆔 شناسه فرستنده
+    AuxData          *AuxData          `json:"aux_data"`           // 🔗 داده‌های کمکی
     File             *File             `json:"file"`               // 📁 فایل پیام
     ReplyToMessageID string            `json:"reply_to_message_id"`// ↩️ پاسخ به پیام
+    ForwardedFrom    *ForwardedFrom    `json:"forwarded_from"`     // ↪️ اطلاعات فوروارد
     Location         *Location         `json:"location"`           // 📍 موقعیت مکانی
     Sticker          *Sticker          `json:"sticker"`            // 🎨 استیکر
     ContactMessage   *ContactMessage   `json:"contact_message"`    // 👥 مخاطب
     Poll             *Poll             `json:"poll"`               // 📊 نظرسنجی
+    Payment          *PaymentStatus    `json:"payment"`            // 💰 وضعیت پرداخت
+}
+```
+
+### 🤖 ساختار کلاینت
+
+```go
+// 🤖 ساختار اصلی کلاینت بات
+type BotClient struct {
+    token        string
+    baseURL      string
+    httpClient   *http.Client
+    botID        string
+    mu           sync.RWMutex
+    lastSentTime time.Time
+
+    // مدیریت وضعیت
+    isRunning bool
+    stopChan  chan struct{}
+
+    // هندلرها و میدلورها
+    handlers      []Handler
+    middlewares   []MiddlewareFunc
+    updateFilters []FilterFunc
+
+    // نرخ محدودیت
+    rateLimitDuration time.Duration
+    maxRetries        int
+
+    // قابلیت‌های جدید
+    antiSpam                *AntiSpam
+    hotReloadEnabled        bool
+    stateManager            *StateManager
+    ignoreTimeout           bool
+    metadata                map[string]interface{}
+    reloadManager           *ReloadManager
+    networkStabilityManager *NetworkStabilityManager
 }
 ```
 
@@ -207,8 +258,13 @@ func main() {
         log.Fatal("❌ توکن ربات یافت نشد! لطفا متغیر محیطی RUBIKA_BOT_TOKEN را تنظیم کنید.")
     }
     
-    // 🤖 ایجاد نمونه ربات
-    bot := ParsRubika.NewClient(botToken)
+    // 🤖 ایجاد نمونه ربات با گزینه‌های پیشرفته
+    bot := ParsRubika.NewClient(botToken,
+        ParsRubika.WithRateLimitDelay(1*time.Second), // تأخیر بین درخواست‌ها
+        ParsRubika.WithMaxRetries(3),                 // حداکثر تلاش مجدد
+        ParsRubika.WithIgnoreTimeout(true),           // نادیده گرفتن خطاهای timeout
+        ParsRubika.WithHotReload(true),               // فعال‌سازی Hot-Reload
+    )
     
     // 🎯 تنظیم هندلر برای پیام‌ها
     bot.OnMessageUpdates(func(ctx context.Context, update *ParsRubika.Update) error {
@@ -283,6 +339,7 @@ import (
     "log"
     "os"
     "strings"
+    "time"
     
     ParsRubika "github.com/Abolfazl-Zarei/ParsRubika-bot-go"
 )
@@ -302,8 +359,13 @@ func main() {
         `)
     }
     
-    // 🤖 ایجاد نمونه ربات
-    bot := ParsRubika.NewClient(token)
+    // 🤖 ایجاد نمونه ربات با تمام قابلیت‌ها
+    bot := ParsRubika.NewClient(token,
+        ParsRubika.WithRateLimitDelay(1*time.Second),
+        ParsRubika.WithMaxRetries(3),
+        ParsRubika.WithIgnoreTimeout(true),
+        ParsRubika.WithHotReload(true),
+    )
     
     // ⚙️ تنظیم هندلرها
     setupHandlers(bot)
@@ -331,6 +393,16 @@ func setupHandlers(bot *ParsRubika.BotClient) {
         
         msg := update.NewMessage
         chatID := update.ChatID
+        userID := msg.SenderID
+        
+        // 🛡️ بررسی ضد اسپم
+        if !bot.CheckAntiSpam(userID) {
+            _, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+                ChatID: chatID,
+                Text:   "⚠️ لطفاً کمی صبر کنید و درخواست‌های خود را با فاصله ارسال کنید.",
+            })
+            return err
+        }
         
         // 🎯 مسیریابی دستورات
         switch {
@@ -342,15 +414,44 @@ func setupHandlers(bot *ParsRubika.BotClient) {
             return handleEcho(ctx, bot, chatID, msg.Text)
         case msg.Text == "/info":
             return handleInfo(ctx, bot, update)
+        case msg.Text == "/state":
+            return handleStateDemo(ctx, bot, chatID, userID)
         default:
             return handleDefault(ctx, bot, chatID, msg.Text)
         }
     })
     
-    // 🔔 هندلر شروع ربات
+    // 🔔 هندلر شروع رات
     bot.OnStart(func(ctx context.Context, update *ParsRubika.Update) error {
         log.Println("✅ ربات با موفقیت راه‌اندازی شد!")
         return nil
+    })
+    
+    // 🎨 هندلر برای پیام‌های عکس
+    bot.OnPhoto(func(ctx context.Context, update *ParsRubika.Update) error {
+        _, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+            ChatID: update.ChatID,
+            Text:   "🖼️ عکس زیبایی ارسال کردید! 📸",
+        })
+        return err
+    })
+    
+    // 🎵 هندلر برای پیام‌های صوتی
+    bot.OnAudio(func(ctx context.Context, update *ParsRubika.Update) error {
+        _, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+            ChatID: update.ChatID,
+            Text:   "🎵 موسیقی زیبایی است! 🎶",
+        })
+        return err
+    })
+    
+    // 📍 هندلر برای پیام‌های موقعیت مکانی
+    bot.OnLocation(func(ctx context.Context, update *ParsRubika.Update) error {
+        _, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+            ChatID: update.ChatID,
+            Text:   "📍 مکان شما دریافت شد! 🗺️",
+        })
+        return err
     })
 }
 ```
@@ -379,6 +480,7 @@ func handleStart(ctx context.Context, bot *ParsRubika.BotClient, chatID string) 
 /help - راهنمای کامل ربات  
 /echo [متن] - تکرار متن شما
 /info - اطلاعات کاربر
+/state - نمایش وضعیت فعلی شما
 
 🔧 **ساخته شده با:** 
 • زبان Go 🦫
@@ -387,9 +489,11 @@ func handleStart(ctx context.Context, bot *ParsRubika.BotClient, chatID string) 
 
 💡 **شروع کنید:** یک دستور ارسال کنید یا پیام دلخواه بفرستید!`
     
+    // 📨 ارسال پیام با کیبورد
     _, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
         ChatID: chatID,
         Text:   welcomeText,
+        ReplyKeyboardMarkup: createMainMenuKeyboard(),
     })
     return err
 }
@@ -403,6 +507,7 @@ func handleHelp(ctx context.Context, bot *ParsRubika.BotClient, chatID string) e
 🔹 /help - نمایش این راهنما  
 🔹 /echo [متن] - ارسال متن به ربات
 🔹 /info - دریافت اطلاعات کاربر
+🔹 /state - نمایش وضعیت فعلی
 
 🛠 **امکانات پیشرفته:**
 • 📨 ارسال پیام‌های متنی
@@ -410,6 +515,8 @@ func handleHelp(ctx context.Context, bot *ParsRubika.BotClient, chatID string) e
 • 📍 ارسال موقعیت مکانی
 • 📊 ایجاد نظرسنجی
 • ⌨️ کیبوردهای تعاملی
+• 🛡️ سیستم ضد اسپم
+• 💾 مدیریت وضعیت
 
 💡 **نکات:**
 • شما می‌توانید هر متنی را برای ربات ارسال کنید
@@ -480,6 +587,41 @@ func handleInfo(ctx context.Context, bot *ParsRubika.BotClient, update *ParsRubi
     return err
 }
 
+// 💾 هندلر دستور /state
+func handleStateDemo(ctx context.Context, bot *ParsRubika.BotClient, chatID, userID string) error {
+    // 💾 ذخیره وضعیت کاربر
+    bot.SetState(userID, "last_command", "/state")
+    bot.SetState(userID, "visit_count", 1)
+    
+    // 🔍 بازیابی وضعیت کاربر
+    lastCmd, _ := bot.GetState(userID, "last_command")
+    visitCount, _ := bot.GetState(userID, "visit_count")
+    
+    // 🔄 افزایش تعداد بازدید
+    if count, ok := visitCount.(int); ok {
+        bot.SetState(userID, "visit_count", count+1)
+        visitCount = count + 1
+    }
+    
+    infoText := fmt.Sprintf(`💾 **وضعیت فعلی شما**
+
+🔧 **آخرین دستور:** %s
+🔢 **تعداد بازدید:** %v
+⏰ **زمان آخرین فعالیت:** %s
+
+💡 **این اطلاعات در سرور ذخیره شده‌اند و در جلسات بعدی باقی می‌مانند.**`,
+        lastCmd,
+        visitCount,
+        time.Now().Format("2006/01/02 15:04:05"),
+    )
+    
+    _, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+        ChatID: chatID,
+        Text:   infoText,
+    })
+    return err
+}
+
 // 💬 هندلر پیام‌های معمولی
 func handleDefault(ctx context.Context, bot *ParsRubika.BotClient, chatID, text string) error {
     response := fmt.Sprintf(`💬 **پیام شما دریافت شد!**
@@ -509,44 +651,38 @@ import (
     ParsRubika "github.com/Abolfazl-Zarei/ParsRubika-bot-go"
 )
 
-// 🔧 ایجاد کیبورد ساده
-func createSimpleKeyboard() *ParsRubika.Keypad {
-    return &ParsRubika.Keypad{
-        Rows: []ParsRubika.KeypadRow{
+// 🔧 ایجاد کیبورد اصلی
+func createMainMenuKeyboard() *ParsRubika.ReplyKeyboardMarkup {
+    return &ParsRubika.ReplyKeyboardMarkup{
+        Keyboard: [][]*ParsRubika.KeyboardButton{
             {
-                Buttons: []ParsRubika.Button{
-                    {
-                        ID:         "btn_help",
-                        Type:       ParsRubika.ButtonTypeSimple,
-                        ButtonText: "📚 راهنما",
-                    },
-                    {
-                        ID:         "btn_info", 
-                        Type:       ParsRubika.ButtonTypeSimple,
-                        ButtonText: "👤 اطلاعات",
-                    },
+                {
+                    Text: "📚 راهنما",
+                },
+                {
+                    Text: "👤 اطلاعات",
                 },
             },
             {
-                Buttons: []ParsRubika.Button{
-                    {
-                        ID:         "btn_echo",
-                        Type:       ParsRubika.ButtonTypeSimple,
-                        ButtonText: "🔊 تکرار متن",
-                    },
+                {
+                    Text: "🔊 تکرار متن",
+                },
+                {
+                    Text: "💾 وضعیت",
                 },
             },
         },
-        ResizeKeyboard: true,
+        ResizeKeyboard:  true,
+        OneTimeKeyboard: false,
     }
 }
 
 // 🎯 ارسال پیام با کیبورد
 func sendMessageWithKeyboard(ctx context.Context, bot *ParsRubika.BotClient, chatID, text string) error {
     _, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
-        ChatID:       chatID,
-        Text:         text,
-        InlineKeypad: createSimpleKeyboard(),
+        ChatID:              chatID,
+        Text:                text,
+        ReplyKeyboardMarkup: createMainMenuKeyboard(),
     })
     return err
 }
@@ -575,6 +711,21 @@ func displayBotInfo(ctx context.Context, bot *ParsRubika.BotClient, chatID strin
     _, err = bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
         ChatID: chatID,
         Text:   infoText,
+    })
+    return err
+}
+
+// 📨 ارسال پیام با فرمت‌بندی
+func sendFormattedMessage(ctx context.Context, bot *ParsRubika.BotClient, chatID, text string) error {
+    // 🎨 استفاده از فرمت‌بندی Markdown
+    formattedText := ParsRubika.Bold("پیام مهم") + "\n\n" +
+        ParsRubika.Italic("این یک متن کج است") + "\n" +
+        ParsRubika.Code("کد نمونه") + "\n" +
+        ParsRubika.Link("کلیک کنید", "https://github.com/Abolfazl-Zarei/ParsRubika-bot-go")
+    
+    _, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+        ChatID: chatID,
+        Text:   formattedText,
     })
     return err
 }
@@ -608,49 +759,99 @@ go run main.go handlers.go utils.go
 #### 📨 ارسال پیام متنی
 ```go
 messageID, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
-    ChatID:   "CHAT_ID",              // 💬 شناسه چت مقصد
-    Text:     "متن پیام شما",         // 📝 متن پیام
-    ReplyToMessageID: "MSG_ID",       // ↩️ پاسخ به پیام خاص (اختیاری)
+    ChatID:               "CHAT_ID",              // 💬 شناسه چت مقصد
+    Text:                 "متن پیام شما",         // 📝 متن پیام
+    ReplyToMessageID:     "MSG_ID",              // ↩️ پاسخ به پیام خاص (اختیاری)
+    InlineKeyboardMarkup:  inlineKeyboard,        // ⌨️ کیبورد اینلاین (اختیاری)
+    ReplyKeyboardMarkup:  replyKeyboard,         // ⌨️ کیبورد پاسخ (اختیاری)
+    DisableNotification:  false,                 // 🔕 بی‌صدا کردن (اختیاری)
 })
 ```
 
-#### ⌨️ ارسال پیام با کیبورد
+#### ⌨️ ارسال پیام با کیبورد اینلاین
 ```go
-// 🎮 ایجاد کیبورد
-keypad := &ParsRubika.Keypad{
-    Rows: []ParsRubika.KeypadRow{
+// 🎮 ایجاد کیبورد اینلاین
+inlineKeyboard := &ParsRubika.InlineKeyboardMarkup{
+    InlineKeyboard: [][]*ParsRubika.InlineKeyboardButton{
         {
-            Buttons: []ParsRubika.Button{
-                {
-                    ID:         "btn1",
-                    Type:       ParsRubika.ButtonTypeSimple,
-                    ButtonText: "🎯 دکمه ۱",
-                },
-                {
-                    ID:         "btn2",
-                    Type:       ParsRubika.ButtonTypeSimple, 
-                    ButtonText: "🚀 دکمه ۲",
-                },
+            {
+                Text:         "🎯 دکمه ۱",
+                CallbackData: "btn1",
+            },
+            {
+                Text:         "🚀 دکمه ۲",
+                CallbackData: "btn2",
+            },
+        },
+        {
+            {
+                Text: "🌐 وب‌سایت",
+                URL:  "https://github.com/Abolfazl-Zarei/ParsRubika-bot-go",
             },
         },
     },
-    ResizeKeyboard: true,  // 📱 تنظیم سایز برای موبایل
 }
 
-// 📨 ارسال پیام با کیبورد
+// 📨 ارسال پیام با کیبورد اینلاین
 messageID, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
-    ChatID:       "CHAT_ID",
-    Text:         "پیام با کیبورد تعاملی 🎮",
-    InlineKeypad: keypad,
+    ChatID:              "CHAT_ID",
+    Text:                "پیام با کیبورد تعاملی 🎮",
+    InlineKeyboardMarkup: inlineKeyboard,
+})
+```
+
+#### ⌨️ ارسال پیام با کیبورد پاسخ
+```go
+// 🎮 ایجاد کیبورد پاسخ
+replyKeyboard := &ParsRubika.ReplyKeyboardMarkup{
+    Keyboard: [][]*ParsRubika.KeyboardButton{
+        {
+            {
+                Text: "📚 راهنما",
+            },
+            {
+                Text: "👤 اطلاعات",
+            },
+        },
+        {
+            {
+                Text:            "📞 شماره تماس",
+                RequestContact:  true,
+            },
+            {
+                Text:            "📍 موقعیت مکانی",
+                RequestLocation: true,
+            },
+        },
+    },
+    ResizeKeyboard:  true,   // 📱 تنظیم سایز برای موبایل
+    OneTimeKeyboard: false,  // 🔁 نمایش دائمی
+}
+
+// 📨 ارسال پیام با کیبورد پاسخ
+messageID, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+    ChatID:             "CHAT_ID",
+    Text:               "پیام با کیبورد پاسخ ⌨️",
+    ReplyKeyboardMarkup: replyKeyboard,
 })
 ```
 
 #### ✏️ ویرایش پیام
 ```go
 err := bot.EditMessageText(ctx, &ParsRubika.EditMessageTextRequest{
-    ChatID:    "CHAT_ID",      // 💬 شناسه چت
-    MessageID: "MESSAGE_ID",   // 🔢 شناسه پیام
-    Text:      "متن جدید",     // 📝 متن جدید
+    ChatID:              "CHAT_ID",      // 💬 شناسه چت
+    MessageID:           "MESSAGE_ID",   // 🔢 شناسه پیام
+    Text:                "متن جدید",     // 📝 متن جدید
+    InlineKeyboardMarkup: newKeyboard,    // ⌨️ کیبورد جدید (اختیاری)
+})
+```
+
+#### ✏️ ویرایش کیبورد پیام
+```go
+err := bot.EditInlineKeypad(ctx, &ParsRubika.EditMessageKeypadRequest{
+    ChatID:              "CHAT_ID",      // 💬 شناسه چت
+    MessageID:           "MESSAGE_ID",   // 🔢 شناسه پیام
+    InlineKeyboardMarkup: newKeyboard,    // ⌨️ کیبورد جدید
 })
 ```
 
@@ -660,6 +861,28 @@ err := bot.DeleteMessage(ctx, &ParsRubika.DeleteMessageRequest{
     ChatID:    "CHAT_ID",      // 💬 شناسه چت
     MessageID: "MESSAGE_ID",   // 🔢 شناسه پیام
 })
+```
+
+#### 📌 پین کردن پیام
+```go
+err := bot.PinChatMessage(ctx, &ParsRubika.PinChatMessageRequest{
+    ChatID:              "CHAT_ID",      // 💬 شناسه چت
+    MessageID:           "MESSAGE_ID",   // 🔢 شناسه پیام
+    DisableNotification:  false,          // 🔕 بی‌صدا کردن (اختیاری)
+})
+```
+
+#### 📌 آنپین کردن پیام
+```go
+err := bot.UnpinChatMessage(ctx, &ParsRubika.UnpinChatMessageRequest{
+    ChatID:    "CHAT_ID",      // 💬 شناسه چت
+    MessageID: "MESSAGE_ID",   // 🔢 شناسه پیام
+})
+```
+
+#### 📌 آنپین کردن همه پیام‌ها
+```go
+err := bot.UnpinAllChatMessages(ctx, "CHAT_ID")  // 💬 شناسه چت
 ```
 
 ### 🖼 ارسال مدیا
@@ -674,14 +897,24 @@ messageID, err := bot.SendPhoto(ctx, "CHAT_ID", "path/to/image.jpg", "عنوان
 messageID, err := bot.SendVideo(ctx, "CHAT_ID", "path/to/video.mp4", "عنوان ویدیو")
 ```
 
+#### 🎵 ارسال موسیقی
+```go
+messageID, err := bot.SendMusic(ctx, "CHAT_ID", "path/to/music.mp3", "عنوان موسیقی")
+```
+
 #### 📄 ارسال فایل
 ```go
 messageID, err := bot.SendDocument(ctx, "CHAT_ID", "path/to/file.pdf", "عنوان فایل")
 ```
 
-#### 🎵 ارسال صدا
+#### 🎙️ ارسال پیام صوتی
 ```go
-messageID, err := bot.SendVoice(ctx, "CHAT_ID", "path/to/voice.ogg", "عنوان صدا")
+messageID, err := bot.SendVoice(ctx, "CHAT_ID", "path/to/voice.ogg", "عنوان پیام صوتی")
+```
+
+#### 🎨 ارسال گیف
+```go
+messageID, err := bot.SendGif(ctx, "CHAT_ID", "path/to/animation.gif", "عنوان گیف")
 ```
 
 #### 🎨 ارسال استیکر
@@ -692,20 +925,63 @@ messageID, err := bot.SendSticker(ctx, "CHAT_ID", "path/to/sticker.webp")
 #### 📍 ارسال موقعیت
 ```go
 messageID, err := bot.SendLocation(ctx, &ParsRubika.SendLocationRequest{
-    ChatID:    "CHAT_ID",
-    Latitude:  "35.6892",   // 📍 عرض جغرافیایی
-    Longitude: "51.3890",   // 📍 طول جغرافیایی
+    ChatID:              "CHAT_ID",
+    Latitude:            "35.6892",   // 📍 عرض جغرافیایی
+    Longitude:           "51.3890",   // 📍 طول جغرافیایی
+    ReplyToMessageID:    "MSG_ID",    // ↩️ پاسخ به پیام (اختیاری)
+    InlineKeyboardMarkup: keyboard,    // ⌨️ کیبورد (اختیاری)
+    DisableNotification: false,       // 🔕 بی‌صدا کردن (اختیاری)
 })
 ```
 
 #### 👥 ارسال مخاطب
 ```go
 messageID, err := bot.SendContact(ctx, &ParsRubika.SendContactRequest{
-    ChatID:      "CHAT_ID",
-    FirstName:   "نام",
-    LastName:    "نام خانوادگی", 
-    PhoneNumber: "09123456789",
+    ChatID:              "CHAT_ID",
+    FirstName:           "نام",
+    LastName:            "نام خانوادگی", 
+    PhoneNumber:         "09123456789",
+    ReplyToMessageID:    "MSG_ID",    // ↩️ پاسخ به پیام (اختیاری)
+    InlineKeyboardMarkup: keyboard,    // ⌨️ کیبورد (اختیاری)
+    DisableNotification: false,       // 🔕 بی‌صدا کردن (اختیاری)
 })
+```
+
+#### 📊 ارسال نظرسنجی
+```go
+messageID, err := bot.SendPoll(ctx, &ParsRubika.SendPollRequest{
+    ChatID:              "CHAT_ID",
+    Question:            "سوال نظرسنجی",
+    Options:             []string{"گزینه اول", "گزینه دوم", "گزینه سوم"},
+    ReplyToMessageID:    "MSG_ID",    // ↩️ پاسخ به پیام (اختیاری)
+    InlineKeyboardMarkup: keyboard,    // ⌨️ کیبورد (اختیاری)
+    DisableNotification: false,       // 🔕 بی‌صدا کردن (اختیاری)
+})
+```
+
+#### 📝 ارسال فعالیت چت
+```go
+err := bot.SendChatActivity(ctx, "CHAT_ID", "typing")  // 📝 در حال تایپ
+err = bot.SendChatActivity(ctx, "CHAT_ID", "upload_photo")  // 📷 در حال آپلود عکس
+err = bot.SendChatActivity(ctx, "CHAT_ID", "record_video")  // 🎬 در حال ضبط ویدیو
+```
+
+### 🔄 فوروارد پیام‌ها
+
+#### 📤 فوروارد یک پیام
+```go
+newMessageID, err := bot.ForwardMessage(ctx, &ParsRubika.ForwardMessageRequest{
+    FromChatID:          "SOURCE_CHAT_ID",  // 📤 شناسه چت مبدا
+    MessageID:           "MESSAGE_ID",      // 🔢 شناسه پیام
+    ToChatID:            "TARGET_CHAT_ID",  // 📥 شناسه چت مقصد
+    DisableNotification: false,             // 🔕 بی‌صدا کردن (اختیاری)
+})
+```
+
+#### 📤 فوروارد چندین پیام
+```go
+messageIDs := []string{"MSG_ID_1", "MSG_ID_2", "MSG_ID_3"}
+newMessageIDs, err := bot.ForwardMessages(ctx, "SOURCE_CHAT_ID", messageIDs, "TARGET_CHAT_ID")
 ```
 
 ### 💬 مدیریت چت و کاربران
@@ -714,12 +990,15 @@ messageID, err := bot.SendContact(ctx, &ParsRubika.SendContactRequest{
 ```go
 chat, err := bot.GetChat(ctx, "CHAT_ID")
 fmt.Printf("نام چت: %s\n", chat.Title)
+fmt.Printf("نوع چت: %s\n", chat.ChatType)
 ```
 
 #### 👤 اطلاعات کاربر
 ```go
 user, err := bot.GetUserInfo(ctx, "USER_ID")
 fmt.Printf("نام کاربر: %s %s\n", user.FirstName, user.LastName)
+fmt.Printf("یوزرنیم: @%s\n", user.Username)
+fmt.Printf("تأیید شده: %v\n", user.IsVerified)
 ```
 
 #### 👥 لیست اعضا
@@ -730,11 +1009,69 @@ for _, member := range members {
 }
 ```
 
-#### 🛡️ مدیران چت
+#### 👤 اطلاعات عضو خاص
+```go
+member, err := bot.GetChatMember(ctx, &ParsRubika.GetChatMemberRequest{
+    ChatID: "CHAT_ID",
+    UserID: "USER_ID",
+})
+fmt.Printf("وضعیت عضو: %s\n", member.Status)
+```
+
+#### 🔢 تعداد اعضا
+```go
+count, err := bot.GetChatMemberCount(ctx, &ParsRubika.GetChatMemberCountRequest{
+    ChatID: "CHAT_ID",
+})
+fmt.Printf("تعداد اعضا: %d\n", count.Count)
+```
+
+#### 👥 مدیران چت
 ```go
 admins, err := bot.GetChatAdministrators(ctx, &ParsRubika.GetChatAdministratorsRequest{
     ChatID: "CHAT_ID",
 })
+for _, admin := range admins.Administrators {
+    fmt.Printf("مدیر: %s (%s)\n", admin.User.FirstName, admin.Status)
+}
+```
+
+#### 🛡️ مدیریت دسترسی اعضا
+```go
+// 🚫 مسدود کردن عضو
+err := bot.BanChatMember(ctx, &ParsRubika.BanChatMemberRequest{
+    ChatID: "CHAT_ID",
+    UserID: "USER_ID",
+})
+
+// ✅ رفع مسدودیت عضو
+err = bot.UnbanChatMember(ctx, &ParsRubika.UnbanChatMemberRequest{
+    ChatID: "CHAT_ID",
+    UserID: "USER_ID",
+})
+
+// 📈 ارتقای عضو به مدیر
+err = bot.PromoteChatMember(ctx, &ParsRubika.PromoteChatMemberRequest{
+    ChatID:          "CHAT_ID",
+    UserID:          "USER_ID",
+    IsAdministrator: &[]bool{true}[0],  // 📌 تبدیل به مدیر
+    CanChangeInfo:   &[]bool{true}[0],  // ✏️ امکان تغییر اطلاعات
+    CanDeleteMessages: &[]bool{true}[0], // 🗑️ امکان حذف پیام‌ها
+    CanInviteUsers:  &[]bool{true}[0],  // 👥 امکان دعوت کاربران
+    CanPinMessages:  &[]bool{true}[0],  // 📌 امکان پین کردن پیام‌ها
+})
+```
+
+#### ⚙️ تنظیم مجوزهای چت
+```go
+permissions := map[string]bool{
+    "can_send_messages":       true,
+    "can_send_media_messages": true,
+    "can_send_polls":          false,
+    "can_add_web_page_previews": false,
+}
+
+err := bot.SetChatPermissions(ctx, "CHAT_ID", permissions)
 ```
 
 ### 📊 نظرسنجی‌ها
@@ -756,7 +1093,230 @@ err := bot.VotePoll(ctx, "CHAT_ID", "MESSAGE_ID", 0) // 0 = گزینه اول
 #### 📈 وضعیت نظرسنجی
 ```go
 status, err := bot.GetPollStatus(ctx, "CHAT_ID", "MESSAGE_ID")
+fmt.Printf("وضعیت: %s\n", status.State)
 fmt.Printf("تعداد آراء: %d\n", status.TotalVote)
+fmt.Printf("درصد آراء: %v\n", status.PercentVoteOptions)
+```
+
+### 🤖 اطلاعات بات
+
+#### 🤖 اطلاعات بات
+```go
+bot, err := bot.GetMe(ctx)
+fmt.Printf("نام بات: %s\n", bot.BotTitle)
+fmt.Printf("یوزرنیم: @%s\n", bot.Username)
+fmt.Printf("شناسه: %s\n", bot.BotID)
+fmt.Printf("توضیحات: %s\n", bot.Description)
+fmt.Printf("لینک اشتراک: %s\n", bot.ShareURL)
+```
+
+#### ⚙️ تنظیم دستورات بات
+```go
+commands := []ParsRubika.BotCommand{
+    {
+        Command:     "start",
+        Description: "شروع کار با ربات",
+    },
+    {
+        Command:     "help",
+        Description: "راهنمای ربات",
+    },
+    {
+        Command:     "info",
+        Description: "اطلاعات کاربر",
+    },
+}
+
+err := bot.SetCommands(ctx, &ParsRubika.SetCommandsRequest{
+    BotCommands: commands,
+})
+```
+
+#### 🔄 به‌روزرسانی endpointهای بات
+```go
+err := bot.UpdateBotEndpoints(ctx, "https://your-domain.com/webhook", ParsRubika.ReceiveUpdate)
+```
+
+### 📁 مدیریت فایل‌ها
+
+#### 📤 درخواست آدرس آپلود
+```go
+uploadResp, err := bot.RequestSendFile(ctx, ParsRubika.ImageType)
+fmt.Printf("آدرس آپلود: %s\n", uploadResp.UploadURL)
+```
+
+#### 📤 آپلود فایل
+```go
+uploadResp, err := bot.UploadFile("https://upload.url", "path/to/file.jpg")
+fmt.Printf("شناسه فایل: %s\n", uploadResp.FileID)
+```
+
+#### 📄 اطلاعات فایل
+```go
+fileInfo, err := bot.GetFile(ctx, "FILE_ID")
+fmt.Printf("نام فایل: %s\n", fileInfo.FileName)
+fmt.Printf("سایز: %d\n", fileInfo.Size)
+fmt.Printf("آدرس دانلود: %s\n", fileInfo.DownloadURL)
+```
+
+#### 📥 دانلود فایل
+```go
+err := bot.Download(ctx, "FILE_ID", "path/to/save/file.jpg")
+```
+
+#### 🖼️ دانلود عکس پروفایل
+```go
+err := bot.DownloadProfilePicture(ctx, "USER_ID", "path/to/save/avatar.jpg")
+```
+
+#### 📤 آپلود فایل مستقیم
+```go
+file, err := bot.UploadFileDirectly(ctx, "path/to/file.jpg", ParsRubika.ImageType)
+fmt.Printf("شناسه فایل: %s\n", file.FileID)
+fmt.Printf("نام فایل: %s\n", file.FileName)
+fmt.Printf("سایز: %d\n", file.Size)
+```
+
+### 🎛 مدیریت وضعیت کاربر
+
+#### 💾 ذخیره وضعیت
+```go
+// 🎯 ذخیره وضعیت‌های مختلف کاربر
+bot.SetState(userID, "current_menu", "main")
+bot.SetState(userID, "selected_item", "item_123")
+bot.SetState(userID, "step", "2")
+bot.SetState(userID, "form_data", map[string]string{
+    "name": "John",
+    "age":  "30",
+})
+```
+
+#### 🔍 بازیابی وضعیت
+```go
+// 🔍 بازیابی وضعیت کاربر
+menu, exists := bot.GetState(userID, "current_menu")
+if exists {
+    switch menu {
+    case "main":
+        // 🏠 نمایش منوی اصلی
+    case "settings":
+        // ⚙️ نمایش تنظیمات
+    case "profile":
+        // 👤 نمایش پروفایل
+    }
+}
+
+step, exists := bot.GetState(userID, "step")
+if exists {
+    // 🔄 ادامه فرآیند از مرحله ذخیره شده
+}
+```
+
+#### 🗑️ مدیریت وضعیت
+```go
+// 🗑️ حذف یک کلید خاص
+bot.DeleteState(userID, "selected_item")
+
+// 🗑️ حذف تمام وضعیت‌های کاربر
+bot.DeleteUserState(userID)
+```
+
+### 🛡️ سیستم ضد اسپم
+
+#### ⚙️ تنظیمات ضد اسپم
+```go
+// 🛡️ دریافت مدیر ضد اسپم
+antiSpam := bot.GetAntiSpam()
+
+// ⏰ تنظیم زمان کول‌داون (پیش‌فرض: 3 ثانیه)
+antiSpam.SetCooldown(5 * time.Second)
+```
+
+#### 🔍 بررسی ضد اسپم
+```go
+// 🛡️ بررسی اینکه آیا کاربر اسپم می‌کند یا خیر
+if bot.CheckAntiSpam(userID) {
+    // ✅ کاربر اسپم نمی‌کند، پردازش ادامه می‌یابد
+    processUserMessage(ctx, update)
+} else {
+    // ⚠️ کاربر در حال اسپم کردن است
+    bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+        ChatID: update.ChatID,
+        Text:   "⚠️ لطفاً کمی صبر کنید و درخواست‌های خود را با فاصله ارسال کنید.",
+    })
+}
+```
+
+#### 🔄 بازنشانی ضد اسپم
+```go
+// 🔄 بازنشانی وضعیت ضد اسپم برای یک کاربر خاص
+bot.ResetAntiSpam(userID)
+```
+
+### 🔄 قابلیت Hot-Reload
+
+#### ⚙️ فعال‌سازی Hot-Reload
+```go
+// 🔄 ایجاد نمونه ربات با Hot-Reload فعال
+bot := ParsRubika.NewClient(token, ParsRubika.WithHotReload(true))
+
+// 🔄 یا فعال‌سازی پس از ساخت
+bot.EnableHotReload()
+```
+
+#### 🔍 بررسی وضعیت Hot-Reload
+```go
+// 🔍 بررسی اینکه آیا Hot-Reload فعال است یا خیر
+if bot.IsHotReloadEnabled() {
+    fmt.Println("Hot-Reload فعال است")
+} else {
+    fmt.Println("Hot-Reload غیرفعال است")
+}
+```
+
+#### 🔄 مدیریت Hot-Reload
+```go
+// 🔄 دریافت مدیر Hot-Reload
+reloadManager := bot.GetReloadManager()
+
+// 🎯 ثبت تابع برای اجرا پس از بارگذاری مجدد
+reloadManager.OnReload(func() {
+    fmt.Println("بارگذاری مجدد انجام شد!")
+})
+
+// 🔄 شروع نظارت بر تغییرات فایل‌ها
+reloadManager.StartWatching()
+
+// 🛑 توقف نظارت بر تغییرات فایل‌ها
+reloadManager.StopWatching()
+
+// 🔄 اجرای دستی بارگذاری مجدد
+reloadManager.TriggerReload()
+```
+
+### 🌐 مدیریت پایداری شبکه
+
+#### 🌐 دریافت مدیر پایداری شبکه
+```go
+// 🌐 دریافت مدیر پایداری شبکه
+networkManager := bot.networkStabilityManager
+```
+
+#### ⏰ محاسبه تأخیر برای تلاش مجدد
+```go
+// ⏰ محاسبه تأخیر برای تلاش مجدد با الگوریتم نمایی و Jitter
+delay := networkManager.CalculateBackoffDelay(retryCount)
+fmt.Printf("تأخیر برای تلاش مجدد: %v\n", delay)
+```
+
+#### 🔍 بررسی خطای قابل تلاش مجدد
+```go
+// 🔍 بررسی اینکه آیا یک خطا قابل تلاش مجدد است یا خیر
+if networkManager.IsRetryableError(err) {
+    fmt.Println("خطا قابل تلاش مجدد است")
+} else {
+    fmt.Println("خطا قابل تلاش مجدد نیست")
+}
 ```
 
 ---
@@ -933,40 +1493,28 @@ func handleEmailInput(ctx context.Context, bot *ParsRubika.BotClient, chatID, us
 ### 🎮 ایجاد کیبورد ساده
 
 ```go
-func createMainMenuKeyboard() *ParsRubika.Keypad {
-    return &ParsRubika.Keypad{
-        Rows: []ParsRubika.KeypadRow{
+func createMainMenuKeyboard() *ParsRubika.ReplyKeyboardMarkup {
+    return &ParsRubika.ReplyKeyboardMarkup{
+        Keyboard: [][]*ParsRubika.KeyboardButton{
             {
-                Buttons: []ParsRubika.Button{
-                    {
-                        ID:         "profile",
-                        Type:       ParsRubika.ButtonTypeSimple,
-                        ButtonText: "👤 پروفایل",
-                    },
-                    {
-                        ID:         "settings", 
-                        Type:       ParsRubika.ButtonTypeSimple,
-                        ButtonText: "⚙️ تنظیمات",
-                    },
+                {
+                    Text: "📚 راهنما",
+                },
+                {
+                    Text: "👤 اطلاعات",
                 },
             },
             {
-                Buttons: []ParsRubika.Button{
-                    {
-                        ID:         "help",
-                        Type:       ParsRubika.ButtonTypeSimple,
-                        ButtonText: "❓ راهنما",
-                    },
-                    {
-                        ID:         "about",
-                        Type:       ParsRubika.ButtonTypeSimple,
-                        ButtonText: "ℹ️ درباره ما",
-                    },
+                {
+                    Text: "🔊 تکرار متن",
+                },
+                {
+                    Text: "💾 وضعیت",
                 },
             },
         },
-        ResizeKeyboard: true,   // 📱 تنظیم سایز برای موبایل
-        OnTimeKeyboard: false,  // ⏰ نمایش موقت
+        ResizeKeyboard:  true,   // 📱 تنظیم سایز برای موبایل
+        OneTimeKeyboard: false,  // 🔁 نمایش دائمی
     }
 }
 ```
@@ -975,59 +1523,62 @@ func createMainMenuKeyboard() *ParsRubika.Keypad {
 
 #### 🔘 دکمه انتخاب (Selection)
 ```go
-selectionBtn := ParsRubika.Button{
-    ID:         "selection",
-    Type:       ParsRubika.ButtonTypeSelection,
-    ButtonText: "📁 انتخاب آیتم",
-    ButtonSelection: &ParsRubika.ButtonSelection{
-        SelectionID:      "my_selection",
-        SearchType:       ParsRubika.ButtonSelectionSearchLocal,
-        GetType:          ParsRubika.ButtonSelectionGetLocal,
-        IsMultiSelection: false,
-        ColumnsCount:     "2",
-        Title:            "📋 لطفا یک آیتم انتخاب کنید",
-        Items: []ParsRubika.ButtonSelectionItem{
-            {
-                Text:     "📱 آیتم ۱",
-                ImageUrl: "https://example.com/image1.jpg",
-                Type:     ParsRubika.ButtonSelectionTextImgThu,
-            },
-            {
-                Text:     "💻 آیتم ۲",
-                ImageUrl: "https://example.com/image2.jpg", 
-                Type:     ParsRubika.ButtonSelectionTextImgThu,
-            },
+selectionBtn := ParsRubika.KeyboardButton{
+    Text: "📁 انتخاب آیتم",
+    Type: ParsRubika.ButtonTypeSelection,
+    // در پیاده‌سازی کامل، باید فیلدهای مربوط به ButtonSelection تنظیم شوند
+}
+
+// 📨 ارسال پیام با دکمه انتخاب
+_, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+    ChatID:             chatID,
+    Text:               "لطفا یک آیتم انتخاب کنید:",
+    ReplyKeyboardMarkup: &ParsRubika.ReplyKeyboardMarkup{
+        Keyboard: [][]*ParsRubika.KeyboardButton{
+            {&selectionBtn},
         },
     },
-}
+})
 ```
 
 #### 📅 دکمه تقویم
 ```go
-calendarBtn := ParsRubika.Button{
-    ID:         "calendar",
-    Type:       ParsRubika.ButtonTypeCalendar,
-    ButtonText: "📅 انتخاب تاریخ",
-    ButtonCalendar: &ParsRubika.ButtonCalendar{
-        Type:  ParsRubika.ButtonCalendarDatePersian,
-        Title: "🗓️ تاریخ مورد نظر را انتخاب کنید",
-    },
+calendarBtn := ParsRubika.KeyboardButton{
+    Text: "📅 انتخاب تاریخ",
+    Type: ParsRubika.ButtonTypeCalendar,
+    // در پیاده‌سازی کامل، باید فیلدهای مربوط به ButtonCalendar تنظیم شوند
 }
+
+// 📨 ارسال پیام با دکمه تقویم
+_, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+    ChatID:             chatID,
+    Text:               "تاریخ مورد نظر را انتخاب کنید:",
+    ReplyKeyboardMarkup: &ParsRubika.ReplyKeyboardMarkup{
+        Keyboard: [][]*ParsRubika.KeyboardButton{
+            {&calendarBtn},
+        },
+    },
+})
 ```
 
 #### 🔢 دکمه انتخاب عدد
 ```go
-numberPickerBtn := ParsRubika.Button{
-    ID:         "number_picker",
-    Type:       ParsRubika.ButtonTypeNumberPicker,
-    ButtonText: "🔢 انتخاب عدد",
-    ButtonNumberPicker: &ParsRubika.ButtonNumberPicker{
-        MinValue:     "1",
-        MaxValue:     "100",
-        DefaultValue: "50",
-        Title:        "🔢 عدد مورد نظر را انتخاب کنید",
-    },
+numberPickerBtn := ParsRubika.KeyboardButton{
+    Text: "🔢 انتخاب عدد",
+    Type: ParsRubika.ButtonTypeNumberPicker,
+    // در پیاده‌سازی کامل، باید فیلدهای مربوط به ButtonNumberPicker تنظیم شوند
 }
+
+// 📨 ارسال پیام با دکمه انتخاب عدد
+_, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+    ChatID:             chatID,
+    Text:               "عدد مورد نظر را انتخاب کنید:",
+    ReplyKeyboardMarkup: &ParsRubika.ReplyKeyboardMarkup{
+        Keyboard: [][]*ParsRubika.KeyboardButton{
+            {&numberPickerBtn},
+        },
+    },
+})
 ```
 
 ### 🎨 استفاده از کیبوردها
@@ -1035,17 +1586,162 @@ numberPickerBtn := ParsRubika.Button{
 ```go
 // 📨 ارسال پیام با کیبورد اصلی
 _, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
-    ChatID:       chatID,
-    Text:         "🎮 **منوی اصلی ربات**\n\nلطفا یک گزینه انتخاب کنید:",
-    InlineKeypad: createMainMenuKeyboard(),
+    ChatID:             chatID,
+    Text:               "🎮 **منوی اصلی ربات**\n\nلطفا یک گزینه انتخاب کنید:",
+    ReplyKeyboardMarkup: createMainMenuKeyboard(),
 })
 
 // ✏️ ویرایش کیبورد پیام موجود
-err := bot.EditInlineKeypad(ctx, &ParsRubika.EditMessageKeypadRequest{
-    ChatID:       chatID,
-    MessageID:    messageID,
-    InlineKeypad: createNewKeyboard(),
+err := bot.EditChatKeypad(ctx, &ParsRubika.EditChatKeypadRequest{
+    ChatID:             chatID,
+    ReplyKeyboardMarkup: createNewKeyboard(),
+    ChatKeypadType:     ParsRubika.NewKeypad,
 })
+
+// 🗑️ حذف کیبورد
+err = bot.EditChatKeypad(ctx, &ParsRubika.EditChatKeypadRequest{
+    ChatID:         chatID,
+    RemoveKeyboard: &ParsRubika.ReplyKeyboardRemove{
+        RemoveKeyboard: true,
+    },
+    ChatKeypadType: ParsRubika.RemoveKeypad,
+})
+```
+
+### 🎨 کیبوردهای اینلاین (Inline)
+
+```go
+// 🎮 ایجاد کیبورد اینلاین
+inlineKeyboard := &ParsRubika.InlineKeyboardMarkup{
+    InlineKeyboard: [][]*ParsRubika.InlineKeyboardButton{
+        {
+            {
+                Text:         "🎯 دکمه ۱",
+                CallbackData: "btn1",
+            },
+            {
+                Text:         "🚀 دکمه ۲",
+                CallbackData: "btn2",
+            },
+        },
+        {
+            {
+                Text: "🌐 وب‌سایت",
+                URL:  "https://github.com/Abolfazl-Zarei/ParsRubika-bot-go",
+            },
+            {
+                Text:              "🔍 جستجو",
+                SwitchInlineQuery: "search_query",
+            },
+        },
+    },
+}
+
+// 📨 ارسال پیام با کیبورد اینلاین
+_, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+    ChatID:              chatID,
+    Text:                "پیام با کیبورد تعاملی 🎮",
+    InlineKeyboardMarkup: inlineKeyboard,
+})
+
+// ✏️ ویرایش کیبورد اینلاین پیام موجود
+err = bot.EditInlineKeypad(ctx, &ParsRubika.EditMessageKeypadRequest{
+    ChatID:              chatID,
+    MessageID:           messageID,
+    InlineKeyboardMarkup: newInlineKeyboard,
+})
+```
+
+### 🎨 توابع کمکی برای ساخت کیبوردها
+
+```go
+// 🎮 ایجاد کیبورد اینلاین
+func NewInlineKeyboard(rows ...[]*ParsRubika.InlineKeyboardButton) *ParsRubika.InlineKeyboardMarkup {
+    keyboard := &ParsRubika.InlineKeyboardMarkup{
+        InlineKeyboard: make([][]*ParsRubika.InlineKeyboardButton, len(rows)),
+    }
+
+    for i, row := range rows {
+        keyboard.InlineKeyboard[i] = make([]*ParsRubika.InlineKeyboardButton, len(row))
+        copy(keyboard.InlineKeyboard[i], row)
+    }
+
+    return keyboard
+}
+
+// 🎮 ایجاد دکمه کیبورد اینلاین
+func NewInlineKeyboardButton(text string) *ParsRubika.InlineKeyboardButton {
+    return &ParsRubika.InlineKeyboardButton{Text: text}
+}
+
+// 🔗 تنظیم URL برای دکمه
+func (b *ParsRubika.InlineKeyboardButton) WithURL(url string) *ParsRubika.InlineKeyboardButton {
+    b.URL = url
+    return b
+}
+
+// 🔗 تنظیم داده callback برای دکمه
+func (b *ParsRubika.InlineKeyboardButton) WithCallbackData(data string) *ParsRubika.InlineKeyboardButton {
+    b.CallbackData = data
+    return b
+}
+
+// 🔍 تنظیم سوئیچ اینلاین کوئری برای دکمه
+func (b *ParsRubika.InlineKeyboardButton) WithSwitchInlineQuery(query string) *ParsRubika.InlineKeyboardButton {
+    b.SwitchInlineQuery = query
+    return b
+}
+
+// 🎮 ایجاد کیبورد پاسخ
+func NewReplyKeyboard(rows ...[]*ParsRubika.KeyboardButton) *ParsRubika.ReplyKeyboardMarkup {
+    keyboard := &ParsRubika.ReplyKeyboardMarkup{
+        Keyboard:       make([][]*ParsRubika.KeyboardButton, len(rows)),
+        ResizeKeyboard: true,
+    }
+
+    for i, row := range rows {
+        keyboard.Keyboard[i] = make([]*ParsRubika.KeyboardButton, len(row))
+        copy(keyboard.Keyboard[i], row)
+    }
+
+    return keyboard
+}
+
+// 🎮 ایجاد دکمه کیبورد پاسخ
+func NewReplyKeyboardButton(text string) *ParsRubika.KeyboardButton {
+    return &ParsRubika.KeyboardButton{Text: text}
+}
+
+// 📞 تنظیم درخواست شماره تلفن برای دکمه
+func (b *ParsRubika.KeyboardButton) WithRequestContact() *ParsRubika.KeyboardButton {
+    b.RequestContact = true
+    return b
+}
+
+// 📍 تنظیم درخواست موقعیت مکانی برای دکمه
+func (b *ParsRubika.KeyboardButton) WithRequestLocation() *ParsRubika.KeyboardButton {
+    b.RequestLocation = true
+    return b
+}
+
+// 📱 تنظیم تغییر اندازه کیبورد
+func (kb *ParsRubika.ReplyKeyboardMarkup) WithResizeKeyboard(resize bool) *ParsRubika.ReplyKeyboardMarkup {
+    kb.ResizeKeyboard = resize
+    return kb
+}
+
+// 🔁 تنظیم کیبورد یکبار مصرف
+func (kb *ParsRubika.ReplyKeyboardMarkup) WithOneTimeKeyboard(oneTime bool) *ParsRubika.ReplyKeyboardMarkup {
+    kb.OneTimeKeyboard = oneTime
+    return kb
+}
+
+// 🗑️ ایجاد دستور برای حذف کیبورد
+func NewRemoveKeyboard() *ParsRubika.ReplyKeyboardRemove {
+    return &ParsRubika.ReplyKeyboardRemove{
+        RemoveKeyboard: true,
+    }
+}
 ```
 
 ---
@@ -1133,6 +1829,43 @@ func downloadAndSaveFile(ctx context.Context, bot *ParsRubika.BotClient, fileID,
     log.Printf("✅ فایل با موفقیت دانلود شد: %s", savePath)
     return nil
 }
+```
+
+### 📤 آپلود آواتار
+
+```go
+// 🖼️ آپلود آواتار
+avatar, err := bot.UploadAvatar(ctx, "path/to/avatar.jpg")
+if err != nil {
+    return fmt.Errorf("❌ خطا در آپلود آواتار: %w", err)
+}
+
+// 📨 ارسال پیام با اطلاعات آواتار
+infoText := fmt.Sprintf(`🖼️ **آواتار آپلود شد!**
+
+🏷️ نام: %s
+📊 سایز: %s
+🆔 شناسه: %s`, avatar.FileName, avatar.Size, avatar.FileID)
+
+_, err = bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+    ChatID: chatID,
+    Text:   infoText,
+})
+```
+
+### 🗑️ حذف آواتار
+
+```go
+// 🗑️ حذف آواتار
+err := bot.DeleteAvatar(ctx)
+if err != nil {
+    return fmt.Errorf("❌ خطا در حذف آواتار: %w", err)
+}
+
+_, err = bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
+    ChatID: chatID,
+    Text:   "✅ آواتار با موفقیت حذف شد!",
+})
 ```
 
 ---
@@ -1285,9 +2018,10 @@ func (sb *ShopBot) initializeProducts() {
         Description: "لپ‌تاپ گیمینگ با کارت گرافیک RTX 4060",
         Price:       45000000,
         ImagePath:   "images/laptop.jpg",
-        Category:    "الکترونیک",
-    }
-    
+        Category:    "الکترونی
+        
+
+```go
     sb.products["2"] = Product{
         ID:          "2", 
         Name:        "هدفون بی‌سیم",
@@ -1870,7 +2604,7 @@ RUN go build -o rubika-bot .
 
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates tzdata
 WORKDIR /root/
 
 # 📋 کپی باینری ساخته شده
@@ -1900,26 +2634,49 @@ services:
       - DATABASE_URL=${DATABASE_URL}
     volumes:
       - ./logs:/app/logs
+      - ./data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 40s
 
-  # 🗄️ دیتابیس اختیاری
+  # 🗄️ دیتابیس اختیاری (PostgreSQL)
   postgres:
-    image: postgres:13
+    image: postgres:15-alpine
+    container_name: rubika-bot-db
     environment:
       - POSTGRES_DB=rubika_bot
       - POSTGRES_USER=bot_user
       - POSTGRES_PASSWORD=${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bot_user -d rubika_bot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 📊 Redis برای کش و State Management
+  redis:
+    image: redis:7-alpine
+    container_name: rubika-bot-redis
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 volumes:
   postgres_data:
+  redis_data:
 ```
 
 ### 🚀 استقرار روی سرور
@@ -1928,18 +2685,20 @@ volumes:
 ```ini
 # /etc/systemd/system/rubika-bot.service
 [Unit]
-Description=Rubika Bot
-After=network.target
-Requires=network.target
+Description=Rubika Bot Service
+After=network.target postgresql.service redis.service
+Wants=network.target
 
 [Service]
 Type=simple
 User=botuser
 Group=botuser
-WorkingDirectory=/home/botuser/rubika-bot
-Environment=RUBIKA_BOT_TOKEN=your_bot_token_here
-Environment=DATABASE_URL=postgresql://user:pass@localhost:5432/rubika_bot
-ExecStart=/home/botuser/rubika-bot/rubika-bot
+WorkingDirectory=/opt/rubika-bot
+Environment="RUBIKA_BOT_TOKEN=your_bot_token_here"
+Environment="DATABASE_URL=postgresql://bot_user:password@localhost:5432/rubika_bot"
+Environment="REDIS_URL=redis://localhost:6379"
+ExecStart=/opt/rubika-bot/rubika-bot
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -1951,6 +2710,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
+ReadWritePaths=/opt/rubika-bot/data /opt/rubika-bot/logs
 
 [Install]
 WantedBy=multi-user.target
@@ -1959,58 +2719,57 @@ WantedBy=multi-user.target
 #### 2. اسکریپت استقرار
 ```bash
 #!/bin/bash
-# deploy.sh
+# deploy.sh - اسکریپت استقرار خودکار
 
 set -e
 
 echo "🚀 شروع استقرار ربات..."
 
 # 🔄 توقف سرویس فعلی
+echo "🛑 توقف سرویس ربات..."
 sudo systemctl stop rubika-bot || true
 
 # 📥 دریافت آخرین تغییرات
+echo "📥 دریافت آخرین نسخه از گیت‌هاب..."
 git pull origin main
 
 # 📦 ساخت پروژه
-go build -o rubika-bot .
+echo "🏗 ساخت باینری پروژه..."
+go build -ldflags="-s -w" -o rubika-bot .
 
 # 🔒 تنظیم مجوزها
+echo "🔒 تنظیم مجوزهای فایل‌ها..."
 chmod +x rubika-bot
+sudo chown botuser:botuser rubika-bot
 
-# 🗄️ migrate دیتابیس (اگر نیاز باشد)
-# ./rubika-bot migrate
+# 🗄️ اجرای Migrations دیتابیس (اگر نیاز باشد)
+# echo "🗄️ اجرای Migrations دیتابیس..."
+# ./rubika-bot migrate up
 
 # 🚀 راه‌اندازی سرویس
+echo "🚀 راه‌اندازی مجدد سرویس..."
 sudo systemctl daemon-reload
 sudo systemctl start rubika-bot
 sudo systemctl enable rubika-bot
 
-echo "✅ استقرار با موفقیت انجام شد!"
-echo "📊 وضعیت سرویس:"
-sudo systemctl status rubika-bot
+# ✅ بررسی وضعیت
+echo "✅ بررسی وضعیت سرویس..."
+sleep 5
+if sudo systemctl is-active --quiet rubika-bot; then
+    echo "🎉 استقرار با موفقیت انجام شد!"
+    sudo systemctl status rubika-bot --no-pager -l
+else
+    echo "❌ خطا در راه‌اندازی سرویس!"
+    sudo journalctl -u rubika-bot -n 20 --no-pager
+    exit 1
+fi
 ```
 
-### ☁️ استقرار ابری (AWS/GCP)
-
-#### Dockerfile برای ابر
-```dockerfile
-FROM golang:1.21 as builder
-
-WORKDIR /app
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
-
-FROM alpine:latest  
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /app/main .
-COPY --from=builder /app/config.yaml .
-
-CMD ["./main"]
-```
+### ☁️ استقرار ابری (AWS/GCP/Azure)
 
 #### Kubernetes Deployment
 ```yaml
+# k8s/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -2018,7 +2777,12 @@ metadata:
   labels:
     app: rubika-bot
 spec:
-  replicas: 2
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: rubika-bot
@@ -2032,12 +2796,18 @@ spec:
         image: your-registry/rubika-bot:latest
         ports:
         - containerPort: 8080
+          name: http
         env:
         - name: RUBIKA_BOT_TOKEN
           valueFrom:
             secretKeyRef:
               name: bot-secrets
               key: token
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: bot-secrets
+              key: database-url
         resources:
           requests:
             memory: "64Mi"
@@ -2048,15 +2818,157 @@ spec:
         livenessProbe:
           httpGet:
             path: /health
-            port: 8080
+            port: http
           initialDelaySeconds: 30
           periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /health
-            port: 8080
+            path: /ready
+            port: http
           initialDelaySeconds: 5
           periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rubika-bot-service
+spec:
+  selector:
+    app: rubika-bot
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: http
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rubika-bot-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+  - hosts:
+    - bot.yourdomain.com
+    secretName: rubika-bot-tls
+  rules:
+  - host: bot.yourdomain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rubika-bot-service
+            port:
+              number: 80
+```
+
+#### GitHub Actions CI/CD
+```yaml
+# .github/workflows/deploy.yml
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.21
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Download dependencies
+      run: go mod download
+    
+    - name: Run tests
+      run: go test -v -race -coverprofile=coverage.out ./...
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v4
+      with:
+        images: your-registry/rubika-bot
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.24.0'
+    
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+    
+    - name: Deploy to Kubernetes
+      run: |
+        export KUBECONFIG=kubeconfig
+        kubectl set image deployment/rubika-bot rubika-bot=your-registry/rubika-bot:main -n rubika-bot
+        kubectl rollout status deployment/rubika-bot -n rubika-bot
 ```
 
 ---
@@ -2074,7 +2986,10 @@ func handleConnectionError(err error) {
         log.Println("💡 راه‌حل: اینترنت و فایروال را بررسی کنید")
     } else if strings.Contains(err.Error(), "timeout") {
         log.Println("⏰ خطای تایم‌اوت: پاسخ سرور طولانی شد")
-        log.Println("💡 راه‌حل: تایم‌اوت را افزایش دهید")
+        log.Println("💡 راه‌حل: تایم‌اوت را افزایش دهید یا شبکه را بررسی کنید")
+    } else if strings.Contains(err.Error(), "no such host") {
+        log.Println("🌐 خطای DNS: نام دامنه پیدا نشد")
+        log.Println("💡 راه‌حل: تنظیمات DNS و فایل hosts را بررسی کنید")
     }
 }
 ```
@@ -2083,12 +2998,13 @@ func handleConnectionError(err error) {
 ```go
 // 🔑 مشکل: توکن نامعتبر
 func handleTokenError(err error) {
-    if strings.Contains(err.Error(), "unauthorized") {
+    if strings.Contains(err.Error(), "unauthorized") || strings.Contains(err.Error(), "401") {
         log.Println("❌ خطای احراز هویت: توکن نامعتبر است")
         log.Println("💡 راه‌حل:")
         log.Println("  1. توکن را از @rubika_bot دریافت کنید")
         log.Println("  2. مطمئن شوید ربات فعال است")
-        log.Println("  3. توکن را درست کپی کنید")
+        log.Println("  3. توکن را درست کپی کنید (فضاهای خالی را حذف کنید)")
+        log.Println("  4. از صحیح بودن متغیر محیطی RUBIKA_BOT_TOKEN اطمینان حاصل کنید")
     }
 }
 ```
@@ -2098,6 +3014,10 @@ func handleTokenError(err error) {
 // 🚦 مشکل: ارسال درخواست‌های زیاد
 func handleRateLimit(bot *ParsRubika.BotClient) {
     // ⏳ افزایش تأخیر بین درخواست‌ها
+    log.Println("🚦 خطای محدودیت نرخ ارسال دریافت شد")
+    log.Println("💡 راه‌حل: افزایش تأخیر بین درخواست‌ها")
+    
+    // 🔄 ساخت مجدد کلاینت با تنظیمات جدید
     bot = ParsRubika.NewClient(token,
         ParsRubika.WithRateLimitDelay(2 * time.Second),
         ParsRubika.WithMaxRetries(5),
@@ -2107,7 +3027,7 @@ func handleRateLimit(bot *ParsRubika.BotClient) {
 
 ### 📊 مانیتورینگ و سلامت
 
-#### سلامت‌سنجی
+#### سلامت‌سنجی (Health Check)
 ```go
 func startHealthCheck(bot *ParsRubika.BotClient) {
     ticker := time.NewTicker(5 * time.Minute)
@@ -2124,7 +3044,7 @@ func startHealthCheck(bot *ParsRubika.BotClient) {
                 // 🔄 تلاش برای بازیابی
                 if strings.Contains(err.Error(), "token") {
                     log.Println("🔄 تلاش برای بازنشانی توکن...")
-                    // منطق بازنشانی توکن
+                    // منطق بازنشانی توکن یا ارسال هشدار به ادمین
                 }
             } else {
                 log.Println("✅ ربات در وضعیت سالم")
@@ -2134,9 +3054,16 @@ func startHealthCheck(bot *ParsRubika.BotClient) {
         }
     }()
 }
+
+// 🌐 افزودن endpoint سلامت برای وب‌هوک
+func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte(`{"status": "ok", "timestamp": "` + time.Now().Format(time.RFC3339) + `"}`))
+}
 ```
 
-#### میدلور لاگینگ
+#### میدلور لاگینگ پیشرفته
 ```go
 type LoggingMiddleware struct {
     bot *ParsRubika.BotClient
@@ -2145,7 +3072,8 @@ type LoggingMiddleware struct {
 func (lm *LoggingMiddleware) HandleUpdate(ctx context.Context, update *ParsRubika.Update, next ParsRubika.HandlerFunc) error {
     start := time.Now()
     
-    log.Printf("📥 آپدیت دریافت شد - نوع: %s, چت: %s", update.Type, update.ChatID)
+    log.Printf("📥 آپدیت دریافت شد - نوع: %s, چت: %s, کاربر: %s", 
+        update.Type, update.ChatID, getSenderID(update))
     
     err := next(ctx, update)
     
@@ -2162,13 +3090,35 @@ func (lm *LoggingMiddleware) HandleUpdate(ctx context.Context, update *ParsRubik
     return err
 }
 
+func getSenderID(update *ParsRubika.Update) string {
+    if update.NewMessage != nil {
+        return update.NewMessage.SenderID
+    }
+    if update.UpdatedMessage != nil {
+        return update.UpdatedMessage.SenderID
+    }
+    return "Unknown"
+}
+
 func (lm *LoggingMiddleware) sendErrorReport(ctx context.Context, update *ParsRubika.Update, err error) {
     // 📨 ارسال گزارش خطا به ادمین
-    errorMsg := fmt.Sprintf("🚨 **گزارش خطا**\n\n💬 چت: %s\n❌ خطا: %v\n⏰ زمان: %s",
-        update.ChatID, err, time.Now().Format("2006/01/02 15:04:05"))
+    errorMsg := fmt.Sprintf(`🚨 **گزارش خطا در ربات**
+
+💬 چت: %s
+👤 کاربر: %s
+❌ خطا: %v
+⏰ زمان: %s
+📄 آپدیت: %+v`,
+        update.ChatID,
+        getSenderID(update),
+        err,
+        time.Now().Format("2006/01/02 15:04:05"),
+        update,
+    )
     
     // ارسال به ادمین‌ها
-    for adminID := range lm.bot.adminUsers {
+    adminIDs := []string{"ADMIN_ID_1", "ADMIN_ID_2"}
+    for _, adminID := range adminIDs {
         lm.bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
             ChatID: adminID,
             Text:   errorMsg,
@@ -2184,32 +3134,59 @@ func (lm *LoggingMiddleware) sendErrorReport(ctx context.Context, update *ParsRu
 #!/bin/bash
 # dev.sh - اسکریپت توسعه
 
+set -e
+
 echo "🔧 محیط توسعه ParsRubika"
 
 case "$1" in
     "run")
         echo "🚀 اجرای ربات در حالت توسعه..."
-        go run main.go handlers.go
+        RUBIKA_BOT_TOKEN=${RUBIKA_BOT_TOKEN:-"dev_token"} go run main.go handlers.go utils.go
         ;;
     "test")
         echo "🧪 اجرای تست‌ها..."
-        go test -v ./...
+        go test -v -race -coverprofile=coverage.out ./...
+        go tool cover -html=coverage.out -o coverage.html
+        echo "📊 گزارش پوشش در coverage.html ذخیره شد"
         ;;
     "build")
         echo "🏗 ساخت باینری..."
-        go build -o rubika-bot .
+        go build -ldflags="-s -w" -o rubika-bot .
         ;;
     "lint")
-        echo "📝 بررسی کد..."
+        echo "📝 بررسی کد با golangci-lint..."
         golangci-lint run
+        ;;
+    "fmt")
+        echo "🎨 فرمت‌بندی کد..."
+        go fmt ./...
+        goimports -w .
         ;;
     "clean")
         echo "🧹 پاک‌سازی..."
         go clean
-        rm -f rubika-bot
+        rm -f rubika-bot coverage.out coverage.html
+        ;;
+    "docker-build")
+        echo "🐳 ساخت ایمیج داکر..."
+        docker build -t rubika-bot:dev .
+        ;;
+    "docker-run")
+        echo "🐳 اجرا با داکر..."
+        docker run --rm -it -p 8080:8080 -e RUBIKA_BOT_TOKEN=$RUBIKA_BOT_TOKEN rubika-bot:dev
         ;;
     *)
-        echo "💡 استفاده: ./dev.sh [run|test|build|lint|clean]"
+        echo "💡 استفاده: ./dev.sh [run|test|build|lint|fmt|clean|docker-build|docker-run]"
+        echo ""
+        echo "📋 دستورات:"
+        echo "  run           - اجرای ربات در حالت توسعه"
+        echo "  test          - اجرای تست‌ها و گزارش پوشش"
+        echo "  build         - ساخت باینری"
+        echo "  lint          - بررسی کد با linter"
+        echo "  fmt           - فرمت‌بندی کد"
+        echo "  clean         - پاک‌سازی فایل‌های اضافی"
+        echo "  docker-build  - ساخت ایمیج داکر"
+        echo "  docker-run    - اجرا با داکر"
         ;;
 esac
 ```
@@ -2223,23 +3200,45 @@ bot:
     enabled: false
     port: 8080
     path: "/webhook"
+    secret: "${WEBHOOK_SECRET}"
   polling:
     enabled: true
     interval: "2s"
     limit: 100
+    timeout: "30s"
 
 database:
   url: "${DATABASE_URL}"
   max_connections: 20
+  max_idle_connections: 5
+  connection_max_lifetime: "1h"
+
+redis:
+  url: "${REDIS_URL}"
+  pool_size: 10
 
 logging:
   level: "info"
-  file: "bot.log"
+  format: "json" # json or text
+  file: "logs/bot.log"
+  max_size: 100 # MB
+  max_backups: 3
+  max_age: 28 # days
 
 features:
   state_management: true
   file_upload: true
   admin_panel: true
+  anti_spam: true
+  hot_reload: false
+
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+  health_check:
+    enabled: true
+    path: "/health"
 ```
 
 ---
@@ -2252,43 +3251,66 @@ features:
 - **📢 چنل روبیکا:** `Ninja_code`
 - **📧 ایمیل:** `ninjacode.ir@gmail.com`
 - **🐙 گیت‌هاب:** [Abolfazl-Zarei](https://github.com/Abolfazl-Zarei)
+- **🌐 وب‌سایت:** [ninjacode.ir](https://ninjacode.ir) (در صورت وجود)
 
 ### 📝 گزارش مشکل
+
+برای گزارش باگ یا درخواست ویژگی جدید، لطفاً مراحل زیر را دنبال کنید:
+
+1.  **جستجو:** ابتدا در [ایسوها](https://github.com/Abolfazl-Zarei/ParsRubika-bot-go/issues) جستجو کنید تا مطمئن شوید مشکل تکراری نیست.
+2.  **ایجاد ایسو جدید:**
+    *   از یک عنوان واضح و مشخص استفاده کنید.
+    *   توضیح دهید که مشکل چیست و چگونه می‌توان آن را بازتولید کرد.
+    *   قطعه کد مربوطه را ارسال کنید.
+    *   خروجی خطا را کامل کپی کنید.
+    *   محیط خود را مشخص کنید (نسخه Go, سیستم‌عامل, نسخه کتابخانه).
 
 ```bash
 # 1. بررسی نسخه‌ها
 go version
 go list -m all | grep ParsRubika
 
-# 2. لاگ‌های خطا
-tail -f bot.log
+# 2. بررسی لاگ‌ها
+tail -f logs/bot.log
 
-# 3. اطلاعات سیستم
+# 3. جمع‌آوری اطلاعات سیستم
+go env
 uname -a
 ```
 
 ### 🤝 مشارکت در توسعه
 
-```bash
-# 1. Fork کردن پروژه
-# از طریق گیت‌هاب پروژه را Fork کنید
+مشارکت شما باعث خوشحالی ماست! برای شروع:
 
-# 2. کلون کردن
-git clone https://github.com/YOUR_USERNAME/ParsRubika-bot-go.git
-cd ParsRubika-bot-go
-
-# 3. ایجاد branch جدید
-git checkout -b feature/amazing-feature
-
-# 4. کامیت تغییرات
-git add .
-git commit -m "اضافه کردن قابلیت جدید"
-
-# 5. Push کردن
-git push origin feature/amazing-feature
-
-# 6. ایجاد Pull Request
-```
+1.  **Fork کردن پروژه:** روی دکمه Fork در بالای صفحه گیت‌هاب کلیک کنید.
+2.  **کلون کردن مخزن:**
+    ```bash
+    git clone https://github.com/YOUR_USERNAME/ParsRubika-bot-go.git
+    cd ParsRubika-bot-go
+    ```
+3.  **ایجاد شاخه جدید:**
+    ```bash
+    git checkout -b feature/amazing-feature
+    ```
+4.  **انجام تغییرات:**
+    *   کد خود را بنویسید.
+    *   تست‌های مربوطه را اضافه کنید.
+    *   مطمئن شوید که همه تست‌ها پاس می‌شوند: `go test ./...`
+    *   کد را با `go fmt` و `goimports` فرمت کنید.
+5.  **کامیت کردن تغییرات:**
+    ```bash
+    git add .
+    git commit -m "اضافه کردن قابلیت جدید: توضیحی کوتاه در مورد تغییرات"
+    ```
+6.  **Push کردن به شاخه خود:**
+    ```bash
+    git push origin feature/amazing-feature
+    ```
+7.  **ایجاد Pull Request:**
+    *   به صفحه مخزن خود در گیت‌هاب بروید.
+    *   روی دکمه "New pull request" کلیک کنید.
+    *   شاخه خود را با شاخه `main` اصلی مقایسه کنید.
+    *   یک توضیح واضح برای PR خود بنویسید.
 
 ---
 
@@ -2306,9 +3328,10 @@ git push origin feature/amazing-feature
 - ⌨ **کیبوردهای پویا** و تعاملی
 - 📁 **مدیریت فایل‌ها** و مدیا
 - 🌐 **Webhook و Polling** برای دریافت آپدیت‌ها
-- 🚀 **مثال‌های پیشرفته** واقعی
-- ☁ **استقرار و دیپلوی** حرفه‌ای
+- 🚀 **مثال‌های پیشرفته** واقعی (فروشگاه، نظرسنجی، مدیریت کانال)
+- ☁ **استقرار و دیپلوی** حرفه‌ای (داکر، کوبرنتیز)
 - 🔧 **عیب‌یابی** و مانیتورینگ
+- 🛡️ **قابلیت‌های پیشرفته** مانند Hot-Reload و Anti-Spam
 
 ### 🚀 شروع نهایی
 
@@ -2324,12 +3347,26 @@ import (
 )
 
 func main() {
-    // 🤖 ایجاد ربات
-    bot := ParsRubika.NewClient(os.Getenv("RUBIKA_BOT_TOKEN"))
+    // 🤖 ایجاد ربات با تمام قابلیت‌ها
+    bot := ParsRubika.NewClient(os.Getenv("RUBIKA_BOT_TOKEN"),
+        ParsRubika.WithRateLimitDelay(1*time.Second),
+        ParsRubika.WithMaxRetries(3),
+        ParsRubika.WithIgnoreTimeout(true),
+        ParsRubika.WithHotReload(true),
+    )
     
-    // 🎯 هندلر ساده
+    // 🎯 هندلر ساده و قدرتمند
     bot.OnMessageUpdates(func(ctx context.Context, update *ParsRubika.Update) error {
         if update.NewMessage != nil {
+            // 🛡️ بررسی ضد اسپم
+            if !bot.CheckAntiSpam(update.NewMessage.SenderID) {
+                return nil
+            }
+            
+            // 💾 ذخیره وضعیت کاربر
+            bot.SetState(update.NewMessage.SenderID, "last_message", update.NewMessage.Text)
+            
+            // 📨 ارسال پاسخ
             _, err := bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
                 ChatID: update.ChatID,
                 Text:   "👋 سلام! من با ParsRubika ساخته شده‌ام! 🚀",
@@ -2342,7 +3379,9 @@ func main() {
     // 🚀 اجرا
     ctx := context.Background()
     log.Println("🎉 ربات شروع به کار کرد...")
-    bot.Run(ctx)
+    if err := bot.Run(ctx); err != nil {
+        log.Fatal("💥 خطا در اجرای ربات:", err)
+    }
 }
 ```
 
@@ -2352,6 +3391,7 @@ func main() {
 - 💻 [مخزن گیت‌هاب](https://github.com/Abolfazl-Zarei/ParsRubika-bot-go)
 - 🐦 [کانال اطلاع‌رسانی](https://rubika.ir/Ninja_code)
 - 📝 [ایسوها و باگ‌ها](https://github.com/Abolfazl-Zarei/ParsRubika-bot-go/issues)
+- 📖 [مستندات Go](https://golang.org/doc/)
 
 ---
 
