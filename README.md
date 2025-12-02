@@ -3595,7 +3595,8 @@ monitoring:
 - **📢 چنل روبیکا:** `Ninja_code`
 - **📧 ایمیل:** `ninjacode.ir@gmail.com`
 - **🐙 گیت‌هاب:** [Abolfazl-Zarei](https://github.com/Abolfazl-Zarei)
-- **🌐 وب‌سایت:** [ninjacode.ir](https://ninjacode.ir) (در صورت وجود)
+
+  
 
 ### 📝 گزارش مشکل
 
