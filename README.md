@@ -1262,7 +1262,7 @@ fmt.Printf("آدرس دانلود: %s\n", fileInfo.DownloadURL)
 
 #### 📥 دانلود فایل
 ```go
-err := bot.Download(ctx, "FILE_ID", "path/to/save/file.jpg")
+err := bot.Download(ctx, "FILE_ID", "path/to/save/file")
 ```
 
 #### 🖼️ دانلود عکس پروفایل
@@ -1877,13 +1877,6 @@ func (kb *ParsRubika.ReplyKeyboardMarkup) WithResizeKeyboard(resize bool) *ParsR
     kb.ResizeKeyboard = resize
     return kb
 }
-
-// 🔁 تنظیم کیبورد یکبار مصرف
-func (kb *ParsRubika.ReplyKeyboardMarkup) WithOneTimeKeyboard(oneTime bool) *ParsRubika.ReplyKeyboardMarkup {
-    kb.OneTimeKeyboard = oneTime
-    return kb
-}
-
 // 🗑️ ایجاد دستور برای حذف کیبورد
 func NewRemoveKeyboard() *ParsRubika.ReplyKeyboardRemove {
     return &ParsRubika.ReplyKeyboardRemove{
@@ -2767,11 +2760,11 @@ func (cm *ChannelManagerBot) handleBroadcast(ctx context.Context, chatID, userID
     // 📊 گزارش نتیجه
     _, err := cm.bot.SendMessage(ctx, &ParsRubika.SendMessageRequest{
         ChatID: chatID,
-        Text: fmt.Sprintf("✅ **گزارش ارسال همگانی**
+        Text: fmt.Sprintf(`✅ **گزارش ارسال همگانی**
 
 📤 ارسال شده به: %d کاربر
 ❌ ناموفق: %d کاربر
-📝 متن پیام: %s",
+📝 متن پیام: %s`,
             successCount,
             len(users)-successCount,
             broadcastText,
@@ -3596,8 +3589,6 @@ monitoring:
 - **📧 ایمیل:** `ninjacode.ir@gmail.com`
 - **🐙 گیت‌هاب:** [Abolfazl-Zarei](https://github.com/Abolfazl-Zarei)
 
-  
-
 ### 📝 گزارش مشکل
 
 برای گزارش باگ یا درخواست ویژگی جدید، لطفاً مراحل زیر را دنبال کنید:
@@ -3739,22 +3730,4 @@ func main() {
 - 💻 [مخزن گیت‌هاب](https://github.com/Abolfazl-Zarei/ParsRubika-bot-go)
 - 🐦 [کانال اطلاع‌رسانی](https://rubika.ir/Ninja_code)
 - 📝 [ایسوها و باگ‌ها](https://github.com/Abolfazl-Zarei/ParsRubika-bot-go/issues)
-- 📖 [مستندات Go](https://golang.org/doc/)
-
----
-
-<div align="center">
-
-## 🎯 **همین حالا شروع کنید!**
-
-**با ParsRubika، ربات‌های قدرتمند روبیکا بسازید 🚀**
-
-![Footer](https://img.icons8.com/color/96/000000/hearts.png) 
-
-**ساخته شده با ❤️ توسط ابوالفضل زارعی (NinjaCode)**
-
-📧 [ninjacode.ir@gmail.com](mailto:ninjacode.ir@gmail.com) | 
-🐙 [گیت‌هاب](https://github.com/Abolfazl-Zarei) |
-📱 [روبیکا](https://rubika.ir/NinjaCode)
-
-</div>
+- 📖 [مستندات Go](https://golang.org/doc/
